@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Game Theory — Run Explorer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+           margin: 0; padding: 16px 24px; }
+    h1 { margin: 0 0 12px; font-size: 1.4em; }
+    .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    select { padding: 6px 10px; font-size: 14px; min-width: 360px; }
+    .meta { font-size: 13px; opacity: 0.75; }
+    .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 1100px) { .charts { grid-template-columns: 1fr; } }
+    .card { border: 1px solid #ccc4; border-radius: 8px; padding: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border: 1px solid #ccc4; padding: 4px 8px; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    tr.winner { background: rgba(0, 200, 100, 0.12); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>AI Game Theory — Run Explorer</h1>
+  <div class="row">
+    <label for="run-select">Run:</label>
+    <select id="run-select"></select>
+    <span class="meta" id="run-meta"></span>
+  </div>
+
+  <div class="charts">
+    <div class="card">
+      <h3>Market price</h3>
+      <canvas id="price-chart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <h3>Equity by agent</h3>
+      <canvas id="equity-chart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 16px;">
+    <h3>Final leaderboard</h3>
+    <table id="leaderboard">
+      <thead><tr><th>Rank</th><th>Agent</th><th>Provider</th><th>Cash</th><th>Shares</th><th>Equity</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

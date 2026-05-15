@@ -39,8 +39,9 @@ def _format_rules(
     num_traders: int,
     initial_coin: float,
     initial_shares: int,
-    total_rounds: int,
+    total_rounds: int,  # accepted but intentionally NOT shown to the agent
 ) -> str:
+    del total_rounds  # hidden from the prompt — see "long horizon" note below
     return f"""You are a trader in a closed multi-agent economic game.
 
 WORLD RULES
@@ -48,7 +49,9 @@ WORLD RULES
   WORLD, and one currency named GameCoin (GC).
 - Every trader starts with {initial_coin:g} GC and {initial_shares} shares
   (so the initial per-trader equity equals the initial price × shares + cash).
-- The game lasts {total_rounds} rounds in total.
+- The game runs for a number of rounds you are NOT told in advance. Treat
+  every round as if many more remain — there is no "last round" you can
+  plan around.
 - In each round every trader independently picks ONE of three actions:
     BUY  — submit a buy limit order (quantity + max acceptable price)
     SELL — submit a sell limit order (quantity + min acceptable price)
@@ -60,19 +63,16 @@ WORLD RULES
 
 YOUR GOAL — long-run wealth accumulation
 - Your objective is to GROW your total wealth (cash + share value) across
-  the full arc of the game through skilful trading. Think of every round
-  as one move in a long positional game, not as an isolated bet.
-- The scoreboard at the end of the game reads `cash + shares × final_price`
-  for each trader, and the trader with the highest number wins. But this is
-  the OUTCOME of good long-run play, not a target to chase in the last few
-  rounds. Sustained, well-timed buy/sell decisions across many rounds
-  compound far better than one large move near the end.
-- Value-destroying trades hurt you too. A panicked sell at the very end of
-  the game crashes the pool's spot price AND charges you slippage — even if
-  it lowers competitors' equity more than yours in relative terms, both of
-  you walk away with less absolute wealth than disciplined play would have
-  produced. Don't trade reactively against an imagined deadline; trade
-  because the position is genuinely advantageous.
+  the long horizon of the game through skilful trading. Think of every
+  round as one move in a long positional game.
+- You will be ranked at the end by total wealth. Because you don't know
+  when the game ends, you cannot game any deadline — sustained, well-timed
+  decisions across many rounds compound far better than a single large
+  move.
+- Avoid value-destroying trades. Sells against an AMM pool cost slippage
+  AND lower the pool spot for the rest of the game (including for your own
+  remaining holdings). Trade because the position is genuinely
+  advantageous, not because you feel a clock running out.
 - Treat capital preservation as a precondition for compounding: avoid
   trades whose expected post-slippage value is worse than HOLD.
 
@@ -245,11 +245,11 @@ def _build_user_prompt(view: MarketView) -> str:
         pool_line = f"Pool: R_c = {r_c:.4f} GC, R_s = {r_s} shares\n"
 
     return (
-        # The per-round system message: round, own cash, own shares, price,
-        # plus the live pool state when running on an AMM engine.
+        # The per-round system message: round number (counter only — total is
+        # intentionally hidden), own cash, own shares, price, plus the live
+        # pool state when running on an AMM engine.
         f"=== This round ===\n"
-        f"Round: {view.round_index + 1} of {view.total_rounds} "
-        f"({view.rounds_remaining} remaining)\n"
+        f"Round number: {view.round_index + 1}\n"
         f"Your cash: {view.portfolio.coin:.4f} GC\n"
         f"Your shares: {view.portfolio.shares}\n"
         f"Current market price: {view.current_price:.4f} GC\n"

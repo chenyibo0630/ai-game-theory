@@ -1,0 +1,83 @@
+# AI Game Theory — full local stack.
+#
+#   docker compose up --build           # mysql + frontend, backend on demand
+#   docker compose run --rm backend     # run one simulation
+#   open http://localhost:8000          # browse runs in the UI
+#
+# Configuration:
+# - Edit ./config.yaml (cp config.yaml.example config.yaml) for agent roster.
+# - Edit ./.env to pass API keys into the backend container.
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: aigt-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_game_theory}
+      MYSQL_USER: ${MYSQL_USER:-arena}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-arena}
+    # Bind to loopback only — MySQL is reached internally by backend/frontend
+    # via the Docker network. Exposing 3306 to all interfaces with default
+    # `arena/arena` credentials is a foot-gun on shared dev machines.
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-rootpw}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    image: aigt-backend:latest
+    container_name: aigt-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-arena}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-arena}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_game_theory}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./runs:/app/runs
+    # `up backend` runs continuously? No — by default a single simulation
+    # then exits, leaving MySQL populated for the frontend. Use
+    # `docker compose run backend ...` for one-off invocations.
+    restart: "no"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    image: aigt-frontend:latest
+    container_name: aigt-frontend
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-arena}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-arena}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_game_theory}
+    ports:
+      - "${FRONTEND_PORT:-8000}:8000"
+    restart: unless-stopped
+
+volumes:
+  mysql-data:

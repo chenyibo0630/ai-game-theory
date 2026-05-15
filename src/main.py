@@ -15,8 +15,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
+import uuid
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -108,6 +110,7 @@ def build_agents(mode: str, *, world_facts: dict | None = None) -> list[Agent]:
 
 
 def _dump_result(result: WorldResult, path: Path) -> None:
+    """Legacy single-file JSON dump (kept for replay.py compatibility)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
         "config": asdict(result.config) if is_dataclass(result.config) else result.config,
@@ -117,6 +120,75 @@ def _dump_result(result: WorldResult, path: Path) -> None:
         "rounds": [r.model_dump() for r in result.round_reports],
     }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _persist(
+    result: WorldResult, agents: list[Agent], config: WorldConfig, args: argparse.Namespace
+) -> None:
+    """Route the run to the configured sink(s)."""
+    from .storage import JsonFileSink, NullSink, RunAgent, RunStart
+    from .storage.base import RunSink
+
+    run_id = uuid.uuid4().hex
+    meta = RunStart(
+        run_id=run_id,
+        total_rounds=config.total_rounds,
+        initial_coin=config.initial_coin,
+        initial_shares=config.initial_shares,
+        matching_mode=config.matching_mode,
+        amm_coin_reserve=(config.amm_coin_reserve if config.matching_mode == "amm" else None),
+        amm_share_reserve=(config.amm_share_reserve if config.matching_mode == "amm" else None),
+    )
+    agent_rows = [
+        RunAgent(
+            run_id=run_id,
+            agent_id=a.agent_id,
+            display_name=a.display_name,
+            provider=getattr(a, "provider", "baseline"),
+            model=getattr(getattr(a, "config", None), "model", None),
+        )
+        for a in agents
+    ]
+
+    sinks: list[RunSink] = []
+    if args.storage in ("json", "both"):
+        sinks.append(JsonFileSink())
+    if args.storage in ("mysql", "both"):
+        try:
+            from .storage import MySQLSink
+
+            sinks.append(
+                MySQLSink(
+                    host=os.environ.get("MYSQL_HOST", "mysql"),
+                    port=int(os.environ.get("MYSQL_PORT", "3306")),
+                    user=os.environ.get("MYSQL_USER", "arena"),
+                    password=os.environ.get("MYSQL_PASSWORD", "arena"),
+                    database=os.environ.get("MYSQL_DATABASE", "ai_game_theory"),
+                )
+            )
+        except ImportError:
+            print("MySQL storage requested but PyMySQL not installed — skipping.")
+
+    if not sinks:
+        sinks.append(NullSink())
+
+    try:
+        for sink in sinks:
+            sink.start_run(meta, agent_rows)
+        for report in result.round_reports:
+            for sink in sinks:
+                sink.record_round(run_id, report)
+        for sink in sinks:
+            sink.finish_run(run_id, result.final_price)
+
+        # Legacy single-file dump for backward-compat with src.replay.
+        if args.storage in ("json", "both") and args.out is not None:
+            _dump_result(result, args.out)
+
+        print(f"Run {run_id} persisted via {[type(s).__name__ for s in sinks]}.")
+    finally:
+        for sink in sinks:
+            sink.close()
 
 
 def _render_summary(result: WorldResult, agents: list[Agent]) -> None:
@@ -188,6 +260,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Initial share reserve in the AMM pool (matching=amm only)",
     )
     parser.add_argument("--out", type=Path, default=None, help="Path to write run log JSON")
+    parser.add_argument(
+        "--storage",
+        choices=["json", "mysql", "both"],
+        default="json",
+        help="Where to persist the run. mysql/both require MYSQL_* env vars.",
+    )
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
 
@@ -243,9 +321,7 @@ def main(argv: list[str] | None = None) -> int:
     elapsed = time.monotonic() - start
     print(f"Simulation finished in {elapsed:.2f}s.")
 
-    out_path = args.out or Path("runs") / f"run-{int(time.time())}.json"
-    _dump_result(result, out_path)
-    print(f"Run log written to {out_path}")
+    _persist(result, agents, config, args)
 
     _render_summary(result, agents)
     return 0

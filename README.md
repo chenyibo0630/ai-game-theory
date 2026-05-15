@@ -242,7 +242,24 @@ WorldConfig(
 
 ## 七、命令行 & 项目结构
 
-### 7.1 快速开始
+### 7.1 Docker 一键启动（推荐）
+
+```bash
+cp .env.example .env                       # API keys
+cp config.yaml.example config.yaml         # agent 配置
+
+docker compose up --build                  # 启动 mysql + frontend
+docker compose run --rm backend            # 跑一局，数据写入 mysql
+
+open http://localhost:8000                 # 浏览资产曲线 / 排行榜
+```
+
+三个服务：
+- **mysql** (port 3306) — 自动跑 `db/schema.sql` 建表
+- **frontend** (port 8000) — FastAPI + Chart.js，查询 mysql 渲染价格曲线、equity 曲线、排行榜
+- **backend** — 按 `config.yaml` 跑一局，结果落 mysql；可重复 `docker compose run --rm backend` 跑多局
+
+### 7.2 本地 Python 快速开始（不用 docker）
 
 ```bash
 pip install -r requirements.txt

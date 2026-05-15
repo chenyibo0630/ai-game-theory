@@ -127,7 +127,8 @@ def test_sell_with_no_shares_becomes_hold():
 
 
 def test_prompt_contains_round_cash_shares_and_price():
-    """Every per-round prompt must contain the four spec-required fields."""
+    """Every per-round prompt must contain the four spec-required fields,
+    but must NOT reveal the total number of rounds (long-horizon framing)."""
 
     captured: list[str] = []
 
@@ -140,15 +141,25 @@ def test_prompt_contains_round_cash_shares_and_price():
         "a",
         '{"action": "HOLD", "quantity": 0, "limit_price": 0, "rationale": "n/a"}',
     )
-    agent.decide(_view(coin=42.5, shares=7, price=11.25))
-    prompt = captured[0].lower()
-    assert "round:" in prompt
-    assert "your cash" in prompt
-    assert "42.5" in captured[0]
-    assert "your shares" in prompt
-    assert "7" in captured[0]
-    assert "current market price" in prompt
-    assert "11.25" in captured[0]
+    view = MarketView(
+        round_index=4,
+        total_rounds=100,
+        current_price=11.25,
+        price_history=(11.25,),
+        portfolio=PortfolioState(agent_id="a", coin=42.5, shares=7),
+    )
+    agent.decide(view)
+    prompt = captured[0]
+    lower = prompt.lower()
+    assert "round number" in lower
+    assert "your cash" in lower
+    assert "42.5" in prompt
+    assert "your shares" in lower
+    assert "current market price" in lower
+    assert "11.25" in prompt
+    # The total round count must NOT leak into the per-round message.
+    assert "of 100" not in prompt
+    assert "remaining" not in prompt
 
 
 def test_prompt_contains_public_price_history():
@@ -193,3 +204,14 @@ def test_system_prompt_includes_matching_mode_rules():
     auction_prompt = build_system_prompt("call_auction")
     assert "call auction" in auction_prompt.lower()
     assert "clearing" in auction_prompt.lower()
+
+
+def test_system_prompt_hides_total_rounds():
+    """The system prompt must not leak the total round count."""
+
+    from src.agents.llm.llm_base import build_system_prompt
+
+    prompt = build_system_prompt("amm", total_rounds=100)
+    assert "100 rounds" not in prompt
+    assert "lasts" not in prompt or "long horizon" in prompt.lower()
+    assert "not told in advance" in prompt.lower()
