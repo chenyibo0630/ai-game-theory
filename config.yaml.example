@@ -1,0 +1,81 @@
+# AI Game Theory — example config.yaml
+#
+# Copy to `config.yaml` and tweak. Then run:
+#     python -m src.main --config config.yaml
+#
+# All `${VAR}` references are resolved against environment variables
+# (with python-dotenv loading .env first). YAML is parsed with
+# yaml.safe_load — no Python object construction is allowed.
+
+world:
+  rounds: 100
+  matching: amm          # "amm" (default) or "call_auction"
+  initial_coin: 100
+  initial_shares: 10
+  initial_price: 10      # only used by call_auction; AMM derives spot from reserves
+  amm:
+    coin_reserve: 1000
+    share_reserve: 100
+  parallel_decisions: true
+  decision_workers: 5
+
+# Optional. Default is strict: HTTPS + public hosts only.
+# Flip this to true if you're pointing base_url at a local LM Studio / Ollama
+# / vLLM server, e.g. http://localhost:11434.
+security:
+  allow_insecure_base_url: false
+
+# Each entry is one trader. id must be unique. Providers in this build:
+#   openai, anthropic, google, deepseek, qwen, openai_compatible
+agents:
+  - id: openai-alice
+    name: "Alice (OpenAI)"
+    provider: openai
+    model: gpt-4o-mini
+    api_key: ${OPENAI_API_KEY}
+    temperature: 0.4
+    log_file: runs/agents/alice.log
+
+  - id: anthropic-bob
+    name: "Bob (Anthropic)"
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    api_key: ${ANTHROPIC_API_KEY}
+    temperature: 0.4
+    log_file: runs/agents/bob.log
+
+  - id: google-carol
+    name: "Carol (Google)"
+    provider: google
+    model: gemini-1.5-flash
+    api_key: ${GOOGLE_API_KEY}
+    temperature: 0.4
+    log_file: runs/agents/carol.log
+
+  - id: deepseek-dave
+    name: "Dave (DeepSeek)"
+    provider: deepseek
+    model: deepseek-chat
+    api_key: ${DEEPSEEK_API_KEY}
+    # base_url defaults to https://api.deepseek.com — override only if needed
+    temperature: 0.4
+    log_file: runs/agents/dave.log
+
+  - id: qwen-eve
+    name: "Eve (Qwen)"
+    provider: qwen
+    model: qwen-plus
+    api_key: ${DASHSCOPE_API_KEY}
+    temperature: 0.4
+    log_file: runs/agents/eve.log
+
+  # Optional sixth slot — any OpenAI-compatible endpoint. Two agents may
+  # share a provider; just give them different ids and any model/temperature.
+  # - id: groq-frank
+  #   name: "Frank (Groq)"
+  #   provider: openai_compatible
+  #   model: llama-3.1-70b-versatile
+  #   api_key: ${GROQ_API_KEY}
+  #   base_url: https://api.groq.com/openai/v1
+  #   temperature: 0.7
+  #   log_file: runs/agents/frank.log
