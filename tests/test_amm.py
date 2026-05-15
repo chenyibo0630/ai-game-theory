@@ -37,87 +37,87 @@ def test_invalid_reserves_rejected():
 
 
 def test_buy_executes_against_pool(amm):
-    # Limit well above effective price for a 5-share buy.
+    # Solo BUY 5: net Δ = 5 → P* = R_c/(R_s − Δ) = 1000/95 ≈ 10.526.
+    # Post-trade pool: R_c' = R_c·R_s/(R_s−Δ) = 1052.63, R_s' = 95.
+    # k preserved (1000·100 = 1052.63·95 ≈ 100000); post-trade spot > P*.
     result = amm.clear([_buy("a", 5, 12.0)], opening_price=10.0)
     assert result.cleared_volume == 5
     trade = result.trades[0]
     assert trade.buyer_id == "a"
     assert trade.seller_id == POOL_ID
-    # effective price = R_c / (R_s - q) = 1000 / 95 ≈ 10.526
     assert trade.price == pytest.approx(1000 / 95, rel=1e-6)
-    # pool moves toward higher price.
     assert amm.spot_price > 10.0
+    # k is preserved by uniform-price batch settlement.
+    assert math.isclose(amm.coin_reserve * amm.share_reserve, 100_000.0, rel_tol=1e-9)
 
 
 def test_sell_executes_against_pool(amm):
+    # Solo SELL 5: net Δ = -5 → P* = 1000/(100−(−5)) = 1000/105 ≈ 9.524.
     result = amm.clear([_sell("a", 5, 9.0)], opening_price=10.0)
     assert result.cleared_volume == 5
     trade = result.trades[0]
     assert trade.buyer_id == POOL_ID
     assert trade.seller_id == "a"
-    # effective price = R_c / (R_s + q) = 1000 / 105 ≈ 9.524
     assert trade.price == pytest.approx(1000 / 105, rel=1e-6)
     assert amm.spot_price < 10.0
+    assert math.isclose(amm.coin_reserve * amm.share_reserve, 100_000.0, rel_tol=1e-9)
 
 
-def test_buy_capped_by_limit(amm):
-    # limit 10.0 means we want effective price ≤ 10.0
-    # R_c / (R_s - q) ≤ 10  →  1000 / (100 - q) ≤ 10  →  q ≤ 0
-    # So no fill at all.
+def test_buy_dropped_when_limit_below_clearing(amm):
+    # net Δ = 10 → P* = 1000/90 ≈ 11.11. Buyer's limit 10 < P* → dropped.
     result = amm.clear([_buy("a", 10, 10.0)], opening_price=10.0)
     assert result.cleared_volume == 0
     assert result.trades == ()
 
 
-def test_buy_partial_fill_at_tight_limit(amm):
-    # limit 10.5  →  1000 / (100 - q) ≤ 10.5  →  q ≤ 100 - 95.238 = 4.76  →  4
+def test_buy_dropped_when_limit_still_below_clearing(amm):
+    # net Δ = 10 → P* = 1000/90 ≈ 11.11. Buyer's limit 10.5 < P* → dropped.
     result = amm.clear([_buy("a", 10, 10.5)], opening_price=10.0)
-    assert result.cleared_volume == 4
-    assert result.trades[0].price <= 10.5
+    assert result.cleared_volume == 0
+    assert result.trades == ()
 
 
-def test_sell_capped_by_limit(amm):
-    # limit 10.0  →  R_c / (R_s + q) ≥ 10  →  q ≤ 1000/10 - 100 = 0
+def test_sell_dropped_when_limit_above_clearing(amm):
+    # net Δ = -10 → P* = 1000/110 ≈ 9.09. Seller wants ≥ 10 → dropped.
     result = amm.clear([_sell("a", 10, 10.0)], opening_price=10.0)
     assert result.cleared_volume == 0
 
 
-def test_constant_product_invariant_holds_approximately(amm):
-    """k should stay close to its initial value (drift only from integer rounding)."""
+def test_constant_product_invariant_when_all_orders_fill(amm):
+    """When every submitted order is kept, k is preserved exactly because
+    P* = R_c / (R_s − Δ) by construction."""
     k0 = amm.coin_reserve * amm.share_reserve
+    # Sized so net Δ = 2, P* = 1000/98 ≈ 10.204, all limits satisfy it.
     amm.clear(
         [_buy("a", 3, 12.0), _sell("b", 2, 9.0), _buy("c", 1, 12.0)],
         opening_price=10.0,
     )
     k1 = amm.coin_reserve * amm.share_reserve
-    # AMM math is exact for continuous quantities; integer shares introduce a
-    # small drift. Bound it loosely.
-    assert math.isclose(k0, k1, rel_tol=0.05)
+    assert math.isclose(k0, k1, rel_tol=1e-9)
 
 
-def test_pool_never_drains_completely(amm):
-    # Massive buy that would otherwise consume the pool.
+def test_pool_voids_round_when_capacity_exceeded(amm):
+    # Massive buy that would drain the pool → P* infinite, round voided.
     result = amm.clear([_buy("greedy", 999_999, 1e9)], opening_price=10.0)
-    assert amm.share_reserve >= 1
-    assert result.cleared_volume <= 99  # leaves at least 1 share in the pool
+    assert amm.share_reserve == 100  # unchanged
+    assert amm.coin_reserve == pytest.approx(1000.0)  # unchanged
+    assert result.cleared_volume == 0
+    assert result.trades == ()
 
 
-def test_multiple_orders_execute_sequentially(amm):
-    # Buy then sell — with NO fees, a buy followed by an equal-size sell is a
-    # perfect round-trip and the pool returns to its original state.
+def test_buy_and_sell_clear_at_uniform_price(amm):
+    # net Δ = 5 - 5 = 0 → P* = R_c / R_s = 10.0 exactly. Both fill at 10.0.
     result = amm.clear(
         [_buy("a", 5, 12.0), _sell("b", 5, 9.0)],
         opening_price=10.0,
     )
-    assert result.cleared_volume == 10  # 5 + 5
+    assert result.cleared_volume == 10  # 5 buy + 5 sell
     assert amm.spot_price == pytest.approx(10.0)
-    # With no fees + identical-size mirror trades, the effective price is the
-    # same on both sides (1000/95 going up == 1052.63/100 coming back).
+    # Uniform price → both legs trade at the same P* = 10.0.
     buy_trade = next(t for t in result.trades if t.buyer_id == "a")
     sell_trade = next(t for t in result.trades if t.seller_id == "b")
-    assert buy_trade.price == pytest.approx(sell_trade.price, rel=1e-9)
-    # And both are above the resting spot price of 10 because of slippage.
-    assert buy_trade.price > 10.0
+    assert buy_trade.price == pytest.approx(10.0, rel=1e-9)
+    assert sell_trade.price == pytest.approx(10.0, rel=1e-9)
 
 
 def test_no_orders_returns_spot_price(amm):

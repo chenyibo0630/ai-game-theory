@@ -49,6 +49,39 @@
     </table>
   </div>
 
+  <div class="card" style="margin-top: 16px;">
+    <div class="row" style="margin-bottom: 8px; justify-content: space-between;">
+      <h3 style="margin: 0;">Decisions &amp; rationales</h3>
+      <div>
+        <label>Filter agent:
+          <select id="decision-filter"><option value="">all</option></select>
+        </label>
+        <label style="margin-left: 12px;">Show last:
+          <select id="decision-limit">
+            <option value="50">50</option>
+            <option value="200" selected>200</option>
+            <option value="500">500</option>
+            <option value="0">all</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <table id="decisions">
+      <thead><tr>
+        <th>Round</th><th>Agent</th><th>Action</th><th>Qty</th><th>Limit</th><th>Rationale</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <style>
+    #decisions td:nth-child(6) { text-align: left; max-width: 600px;
+                                  white-space: normal; word-break: break-word; }
+    .act-BUY  { color: #2ca02c; font-weight: 600; }
+    .act-SELL { color: #d62728; font-weight: 600; }
+    .act-HOLD { color: #7f7f7f; }
+  </style>
+
   <script src="/static/app.js"></script>
 </body>
 </html>

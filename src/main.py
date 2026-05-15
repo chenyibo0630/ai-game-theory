@@ -23,7 +23,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from .agent_factory import PROVIDER_CLASSES as YAML_PROVIDER_CLASSES, build_agent
+from .agent_factory import LLM_PROVIDERS as YAML_PROVIDER_CLASSES, build_agent
 from .agent_spec import AgentSpec
 from .agents.base import Agent
 from .agents.baseline import (

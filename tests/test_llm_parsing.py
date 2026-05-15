@@ -150,16 +150,16 @@ def test_prompt_contains_round_cash_shares_and_price():
     )
     agent.decide(view)
     prompt = captured[0]
-    lower = prompt.lower()
-    assert "round number" in lower
-    assert "your cash" in lower
+    assert "轮次序号" in prompt
+    assert "你的现金" in prompt
     assert "42.5" in prompt
-    assert "your shares" in lower
-    assert "current market price" in lower
+    assert "你的持股" in prompt
+    assert "当前市场价" in prompt
     assert "11.25" in prompt
     # The total round count must NOT leak into the per-round message.
     assert "of 100" not in prompt
-    assert "remaining" not in prompt
+    assert "总轮数" not in prompt
+    assert "剩余" not in prompt
 
 
 def test_prompt_contains_public_price_history():
@@ -186,7 +186,7 @@ def test_prompt_contains_public_price_history():
     )
     agent.decide(view)
     prompt = captured[0]
-    assert "public price history" in prompt.lower()
+    assert "公开价格历史" in prompt
     for p in history:
         assert f"{p:.4f}" in prompt
 
@@ -197,13 +197,14 @@ def test_system_prompt_includes_matching_mode_rules():
     from src.agents.llm.llm_base import build_system_prompt
 
     amm_prompt = build_system_prompt("amm")
-    assert "amm" in amm_prompt.lower() or "automated market maker" in amm_prompt.lower()
-    assert "slippage" in amm_prompt.lower()
-    assert "r_c" in amm_prompt.lower() or "constant-product" in amm_prompt.lower()
+    assert "amm" in amm_prompt.lower() or "自动做市商" in amm_prompt
+    # New mechanic: uniform-price batch clearing, no partial fills.
+    assert "统一" in amm_prompt or "P*" in amm_prompt
+    assert "R_c" in amm_prompt
 
     auction_prompt = build_system_prompt("call_auction")
-    assert "call auction" in auction_prompt.lower()
-    assert "clearing" in auction_prompt.lower()
+    assert "集合竞价" in auction_prompt
+    assert "出清" in auction_prompt or "P*" in auction_prompt
 
 
 def test_system_prompt_hides_total_rounds():
@@ -212,6 +213,6 @@ def test_system_prompt_hides_total_rounds():
     from src.agents.llm.llm_base import build_system_prompt
 
     prompt = build_system_prompt("amm", total_rounds=100)
+    assert "100 轮" not in prompt
     assert "100 rounds" not in prompt
-    assert "lasts" not in prompt or "long horizon" in prompt.lower()
-    assert "not told in advance" in prompt.lower()
+    assert "总轮数" not in prompt

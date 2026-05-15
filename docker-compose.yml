@@ -47,11 +47,6 @@ services:
       MYSQL_USER: ${MYSQL_USER:-arena}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-arena}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_game_theory}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./runs:/app/runs

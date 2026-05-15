@@ -41,53 +41,37 @@ def _format_rules(
     initial_shares: int,
     total_rounds: int,  # accepted but intentionally NOT shown to the agent
 ) -> str:
-    del total_rounds  # hidden from the prompt — see "long horizon" note below
-    return f"""You are a trader in a closed multi-agent economic game.
+    del total_rounds  # 故意不告诉 agent 总轮数 —— 见下方"长周期"说明
+    return f"""你是一个博弈论专家。
 
-WORLD RULES
-- {num_traders} traders compete. There is exactly one tradable stock named
-  WORLD, and one currency named GameCoin (GC).
-- Every trader starts with {initial_coin:g} GC and {initial_shares} shares
-  (so the initial per-trader equity equals the initial price × shares + cash).
-- The game runs for a number of rounds you are NOT told in advance. Treat
-  every round as if many more remain — there is no "last round" you can
-  plan around.
-- In each round every trader independently picks ONE of three actions:
-    BUY  — submit a buy limit order (quantity + max acceptable price)
-    SELL — submit a sell limit order (quantity + min acceptable price)
-    HOLD — do nothing
-- Orders are revealed and matched at the end of each round. You will NEVER
-  see anyone else's orders, holdings, decisions, or identity.
-- A submitted order may fill fully, partially, or not at all depending on
-  what the matching engine produces.
+【世界规则】
+- 共有 {num_traders} 名交易员相互竞争。市场中只有一只可交易股票，名为
+  WORLD；只有一种货币，名为 GameCoin（GC）。
+- 每名交易员初始持有 {initial_coin:g} GC 和 {initial_shares} 股
+  （因此初始个人净值 = 初始价格 × 持股数 + 现金）。
+- 每一轮每名交易员独立地从以下三种动作中选择一个：
+    BUY  —— 提交买入限价单（数量 + 可接受的最高价）
+    SELL —— 提交卖出限价单（数量 + 可接受的最低价）
+    HOLD —— 不操作
+- 所有订单在每轮结束时统一揭示并撮合。你可以看到价格的变化，但是看不到其他人的订单、持仓、
+  决策或身份。
+- 一个订单要么按你提交的数量全额成交，要么本轮 0 成交（不存在部分成交）。
 
-YOUR GOAL — long-run wealth accumulation
-- Your objective is to GROW your total wealth (cash + share value) across
-  the long horizon of the game through skilful trading. Think of every
-  round as one move in a long positional game.
-- You will be ranked at the end by total wealth. Because you don't know
-  when the game ends, you cannot game any deadline — sustained, well-timed
-  decisions across many rounds compound far better than a single large
-  move.
-- Avoid value-destroying trades. Sells against an AMM pool cost slippage
-  AND lower the pool spot for the rest of the game (including for your own
-  remaining holdings). Trade because the position is genuinely
-  advantageous, not because you feel a clock running out.
-- Treat capital preservation as a precondition for compounding: avoid
-  trades whose expected post-slippage value is worse than HOLD.
+【你的目标 —— 成为世界首富】
+- 你的目标是理解交易的规则，利用低价买入高价卖出，在游戏的长周期中持续增长你的总财富，成为博弈论世界的首富（现金 + 持股市值）。把每一轮都看作一盘长棋中的一手。
 
-OUTPUT FORMAT (STRICT JSON, single object, no markdown, no commentary)
+【输出格式（严格 JSON，单个对象，不要 markdown、不要任何额外说明）】
 {{
   "action": "BUY" | "SELL" | "HOLD",
-  "quantity": <integer, 0 if HOLD>,
-  "limit_price": <number, 0 if HOLD>,
-  "rationale": "<one short sentence>"
+  "quantity": <整数，HOLD 时为 0>,
+  "limit_price": <数字，HOLD 时为 0>,
+  "rationale": "<一句简短的中文理由>"
 }}
 
-CONSTRAINTS
-- For BUY: quantity * limit_price must be ≤ your current cash.
-- For SELL: quantity must be ≤ your current shares.
-- quantity must be a non-negative integer; limit_price must be positive.
+【约束】
+- BUY：quantity * limit_price 必须 ≤ 你当前的现金。
+- SELL：quantity 必须 ≤ 你当前的持股数。
+- quantity 必须是非负整数；limit_price 必须为正数。
 """
 
 
@@ -103,88 +87,78 @@ def _format_amm(
     total_cash = num_traders * initial_coin + amm_coin_reserve
     total_shares = num_traders * initial_shares + amm_share_reserve
     return f"""
-MATCHING ENGINE: Uniswap V2-style automated market maker (AMM). Zero fees.
+【撮合引擎】Uniswap V2 风格的自动做市商（AMM），批量统一定价。零手续费。
 
-INITIAL STATE
-- Pool starts with R_c = {amm_coin_reserve:g} GC and R_s = {amm_share_reserve} shares.
-- Initial spot price = R_c / R_s = {spot:.4f} GC per share.
-- System-wide totals are constant across the game:
-    cash:   {total_cash:g} GC   = {num_traders} traders × {initial_coin:g} + pool {amm_coin_reserve:g}
-    shares: {total_shares}      = {num_traders} traders × {initial_shares} + pool {amm_share_reserve}
+【初始状态】
+- 流动池初始储备：R_c = {amm_coin_reserve:g} GC，R_s = {amm_share_reserve} 股。
+- 初始现货价 = R_c / R_s = {spot:.4f} GC/股。
+- 整局游戏的系统总量恒定：
+    现金：{total_cash:g} GC = {num_traders} 名交易员 × {initial_coin:g} + 流动池 {amm_coin_reserve:g}
+    股票：{total_shares}    = {num_traders} 名交易员 × {initial_shares} + 流动池 {amm_share_reserve}
 
-CORE MECHANICS
-- All trades happen against the shared liquidity POOL — there is no
-  agent-to-agent matching. POOL is the implicit counterparty for every fill.
-- Constant-product invariant: R_c * R_s ≈ k.
-- Current market price = R_c / R_s.
-- For a BUY of q shares the pool receives cash, releases shares:
-      Δ_c = q * R_c / (R_s − q)
-      effective avg price = R_c / (R_s − q)
-- For a SELL of q shares the pool releases cash, receives shares:
-      Δ_c = q * R_c / (R_s + q)
-      effective avg price = R_c / (R_s + q)
-- Zero transaction fee.
+【核心机制】
+- 所有交易都对手共享流动池 —— 交易员之间不存在直接撮合，流动池是每一笔
+  成交的隐含对手方。
+- 当前市场价 = R_c / R_s。
+- 同一轮内所有订单**同时密封提交、同时清算**，**没有任何执行顺序**。
+  你无法靠"先提交"抢跑，也不会被同一轮其他人的下单冲击到。
 
-PARTIAL FILLS (driven by your limit_price)
-- BUY at limit L: max fillable q = floor(R_s − R_c / L). If ≤ 0 → no fill.
-- SELL at limit L: max fillable q = floor(R_c / L − R_s). If ≤ 0 → no fill.
-- All fills are floored to integer shares.
-- The pool always keeps at least 1 share to prevent price divergence, so
-  you can never drain it completely.
+【出清算法（每轮只算一次，不迭代）】
+1. 用本轮所有提交订单计算净流量：
+       Δ = Σ 买入数量 − Σ 卖出数量
+2. 计算唯一的统一出清价：
+       P* = R_c / (R_s − Δ)
+   （即：池子吸收净流量 Δ 之后的新现货价）
+3. 一次性筛选订单（依据本轮初始 P*）：
+       BUY  保留：limit_price ≥ P*
+       SELL 保留：limit_price ≤ P*
+   不满足者本轮直接作废，**不重新计算 P***。
+4. 所有幸存订单按数量**全额成交**（不存在部分成交），统一以 P* 结算：
+       买家支付 q · P* GC，得 q 股
+       卖家收到 q · P* GC，给 q 股
+5. 池子最终更新（按筛选后实际净流量 Δ_kept）：
+       R_c ← R_c + Δ_kept · P*
+       R_s ← R_s − Δ_kept
 
-EXECUTION ORDER WITHIN A ROUND
-- All orders in a round execute SEQUENTIALLY against the pool, in a
-  deterministic order keyed on agent_id. You cannot front-run by
-  submitting earlier — every order is revealed at the same instant.
-- If others in the same round buy before your buy, spot has already moved
-  up by the time yours executes (and you pay the higher post-impact price).
-- Each round the live (R_c, R_s) will be provided to you under "Pool".
+【你的 limit_price 的含义】
+- 是参与门槛，不是你的成交价。所有成交者都按同一个 P* 结算。
+- 限价过紧（买太低 / 卖太高）→ 本轮被淘汰，0 成交。
+- 限价宽松 → 必定成交，但你可能获得比限价更好的实际价格 P*。
 
-STRATEGIC IMPLICATIONS
-- Slippage is real: bigger orders pay worse marginal prices. Splitting a
-  large position across rounds usually beats one big order.
-- limit_price is your slippage protection. Close to spot ⇒ tight discipline
-  with risk of partial / no fill; loose ⇒ guaranteed fill at a worse price.
-- Buys raise spot, sells lower spot. Anticipate that other traders react to
-  the same public price history you do.
-- Cash and shares are both productive: cash earns optionality (you can buy
-  when prices dip), shares earn appreciation (you participate when price
-  drifts up). A balanced book usually compounds better than an all-in tilt.
-- Long-game discipline: do not engineer a panic-sell in the last few rounds
-  to "lock in" a number. The AMM punishes large terminal sells with steep
-  slippage, the spot crash hurts your remaining shares too, and the
-  resulting loss of absolute wealth is rarely worth the marginal change in
-  ranking. Trade on conviction about value, not on countdown.
+【策略含义】
+- 一轮内净买入大 → P* 上推；净卖出大 → P* 下压。所有人面对的是同一个
+  公开历史，要预判其他交易员可能怎么动。
+- 限价是二元的："过门槛 → 全额"或"不过门槛 → 0"，不存在"成交一半"的情况。
+- 每轮的实时 (R_c, R_s) 会在用户消息的"流动池"字段中提供给你。
+
 """
 
 
 def _format_call_auction(*, num_traders: int) -> str:
     return f"""
-MATCHING ENGINE: Call auction (batched).
+【撮合引擎】集合竞价（批量撮合，全 or 不成）。
 
-CORE MECHANICS
-- All {num_traders} traders' orders are collected each round and cleared at a
-  single uniform price P* that maximises traded volume.
-- BUY orders with limit_price ≥ P* fill in full at P*.
-- SELL orders with limit_price ≤ P* fill in full at P*.
-- Orders at limit_price = P* share the residual capacity pro-rata
-  (deterministic agent_id tie-break).
-- Time priority does NOT matter within a round.
-- Unmatched orders are cancelled at round end (no carry-over book).
+【核心机制】
+- 每轮收集全部 {num_traders} 名交易员的订单，按"使成交量最大化"的统一
+  出清价 P* 一次性出清。
+- 所有 limit_price ≥ P* 的 BUY 订单**全额**按 P* 成交。
+- 所有 limit_price ≤ P* 的 SELL 订单**全额**按 P* 成交。
+- 不存在"部分成交"——若某一侧总量超出对手侧总量，按优先级（买价从高到
+  低、卖价从低到高，再按 agent_id）逐单剔除最低优先级订单，直到两侧总
+  量相等为止。被剔除的订单本轮 0 成交。
+- 同一轮内时间先后没有任何优先级。
+- 未成交订单在本轮结束时撤销（不留挂单簿）。
 
-TIE-BREAK
-- If multiple prices produce the same max volume, the engine prefers the
-  one with smallest |demand − supply|, then the one closest to the
-  previous-round clearing price.
+【破平规则】
+- 若多个价格产生相同的最大成交量，引擎优先选 |需求 − 供给| 最小的那个，
+  再优先选与上一轮出清价最接近的那个。
 
-STRATEGIC IMPLICATIONS
-- Your limit_price is a participation cutoff, not the price you pay: every
-  filled trader pays the SAME P*.
-- Aggressive limits (loose) increase your chance of filling; tight limits
-  risk missing the clear.
-- The clearing price anchors near the previous price when supply and
-  demand are roughly balanced — large directional flow is needed to
-  break the anchor.
+【策略含义】
+- 你的 limit_price 是"是否参与 + 优先级排序"的依据：买价越高、卖价越低，
+  越不容易被剔除。
+- 一旦入选，就按 P* 全额成交；不存在"成交一半"的情况。
+- 当供需大体平衡时，出清价会锚定在上一轮价格附近 —— 想打破这个锚需要
+  明显的方向性单边流量。
 """
 
 
@@ -232,7 +206,7 @@ def _fmt_price_history(history: tuple[float, ...], window: int = 30) -> str:
     entries, oldest first.
     """
     if not history:
-        return "(no prior rounds)"
+        return "（暂无历史轮次）"
     tail = history[-window:]
     return ", ".join(f"{p:.4f}" for p in tail)
 
@@ -242,22 +216,21 @@ def _build_user_prompt(view: MarketView) -> str:
     pool_line = ""
     if view.pool_reserves is not None:
         r_c, r_s = view.pool_reserves
-        pool_line = f"Pool: R_c = {r_c:.4f} GC, R_s = {r_s} shares\n"
+        pool_line = f"流动池：R_c = {r_c:.4f} GC，R_s = {r_s} 股\n"
 
     return (
-        # The per-round system message: round number (counter only — total is
-        # intentionally hidden), own cash, own shares, price, plus the live
-        # pool state when running on an AMM engine.
-        f"=== This round ===\n"
-        f"Round number: {view.round_index + 1}\n"
-        f"Your cash: {view.portfolio.coin:.4f} GC\n"
-        f"Your shares: {view.portfolio.shares}\n"
-        f"Current market price: {view.current_price:.4f} GC\n"
+        # 每轮用户消息：轮次序号（只是计数器 —— 总轮数故意隐藏）、自己的现金、
+        # 自己的持股、当前价格，以及 AMM 引擎下的实时流动池状态。
+        f"=== 本轮信息 ===\n"
+        f"轮次序号：{view.round_index + 1}\n"
+        f"你的现金：{view.portfolio.coin:.4f} GC\n"
+        f"你的持股：{view.portfolio.shares} 股\n"
+        f"当前市场价：{view.current_price:.4f} GC\n"
         f"{pool_line}"
         "\n"
-        f"=== Public price history (oldest → newest) ===\n"
+        f"=== 公开价格历史（由旧到新）===\n"
         f"{history_str}\n\n"
-        "Reply with one JSON object as specified."
+        "请按规定输出一个 JSON 对象作为回复。"
     )
 
 

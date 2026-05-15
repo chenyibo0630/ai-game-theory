@@ -34,21 +34,29 @@ async function loadRuns() {
   }
 }
 
+let currentDecisions = [];
+let currentAgentMap = {};
+
 async function loadRun(runId) {
-  const [detail, prices, equity] = await Promise.all([
+  const [detail, prices, equity, decisions] = await Promise.all([
     fetch(`/api/runs/${runId}`).then((r) => r.json()),
     fetch(`/api/runs/${runId}/prices`).then((r) => r.json()),
     fetch(`/api/runs/${runId}/equity`).then((r) => r.json()),
+    fetch(`/api/runs/${runId}/decisions`).then((r) => r.json()),
   ]);
 
   const run = detail.run;
   const agentMap = Object.fromEntries(detail.agents.map((a) => [a.agent_id, a]));
+  currentAgentMap = agentMap;
+  currentDecisions = decisions;
   $("run-meta").textContent =
     `matching=${run.matching_mode}  rounds=${run.total_rounds}  prompt=${(run.prompt_sha256 || "").slice(0, 8)}`;
 
   drawPrices(prices);
   drawEquity(equity, agentMap);
   drawLeaderboard(equity, agentMap, prices);
+  populateAgentFilter(agentMap);
+  drawDecisions();
 }
 
 function drawPrices(prices) {
@@ -132,5 +140,47 @@ function drawLeaderboard(equity, agentMap, prices) {
   });
 }
 
+function populateAgentFilter(agentMap) {
+  const sel = $("decision-filter");
+  const current = sel.value;
+  sel.innerHTML = '<option value="">all</option>';
+  for (const [aid, agent] of Object.entries(agentMap)) {
+    const opt = document.createElement("option");
+    opt.value = aid;
+    opt.textContent = agent.display_name ?? aid;
+    sel.appendChild(opt);
+  }
+  if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+}
+
+function drawDecisions() {
+  const tbody = document.querySelector("#decisions tbody");
+  tbody.innerHTML = "";
+  const filter = $("decision-filter").value;
+  const limit = parseInt($("decision-limit").value, 10);
+  // Latest rounds first — usually more interesting than the early stretch.
+  const rows = [...currentDecisions]
+    .sort((a, b) => b.round_index - a.round_index || a.agent_id.localeCompare(b.agent_id))
+    .filter((r) => !filter || r.agent_id === filter);
+  const slice = limit > 0 ? rows.slice(0, limit) : rows;
+
+  for (const d of slice) {
+    const tr = document.createElement("tr");
+    const name = currentAgentMap[d.agent_id]?.display_name ?? d.agent_id;
+    const limitText = d.action === "HOLD" ? "—" : fmt(d.limit_price);
+    const qtyText = d.action === "HOLD" ? "—" : d.quantity;
+    tr.innerHTML = `
+      <td>${d.round_index + 1}</td>
+      <td>${name}</td>
+      <td><span class="act-${d.action}">${d.action}</span></td>
+      <td>${qtyText}</td>
+      <td>${limitText}</td>
+      <td>${(d.rationale ?? "").replace(/</g, "&lt;")}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
 $("run-select").addEventListener("change", (e) => loadRun(e.target.value));
+$("decision-filter").addEventListener("change", drawDecisions);
+$("decision-limit").addEventListener("change", drawDecisions);
 loadRuns();

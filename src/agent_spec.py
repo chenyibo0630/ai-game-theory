@@ -127,18 +127,34 @@ def attach_file_logger(agent_id: str, log_file: str) -> None:
 # -------- entrypoint used by the YAML loader --------
 
 
+# Providers that do not call any external LLM endpoint and therefore need
+# no api_key / model. Adding "mock" here tells spec_from_dict to relax the
+# normal credential-required validation for these baseline agents.
+_LOCAL_PROVIDERS: frozenset[str] = frozenset({"mock", "random", "momentum",
+                                              "mean_reversion", "buy_and_hold"})
+
+
 def spec_from_dict(entry: Mapping[str, Any], *, allow_insecure_url: bool = False) -> AgentSpec:
     """Build an AgentSpec from one YAML entry. Raises ValueError on bad input."""
     try:
         agent_id = str(entry["id"])
         provider = str(entry["provider"])
-        model = str(entry["model"])
     except KeyError as missing:
         raise ValueError(f"agent entry missing required key: {missing}") from None
 
+    is_local = provider in _LOCAL_PROVIDERS
+    # Local baseline agents have no model concept — fall back to the provider
+    # name so AgentSpec.model still has a non-empty string for logging/UI.
+    model = str(entry.get("model", provider if is_local else None) or "")
+    if not model:
+        raise ValueError(f"agent entry missing required key: 'model'")
+
     raw_key = entry.get("api_key")
     env_key = entry.get("api_key_env")
-    api_key = resolve_secret(raw_key if isinstance(raw_key, str) else None, env_key=env_key)
+    if is_local and not raw_key and not env_key:
+        api_key = ""
+    else:
+        api_key = resolve_secret(raw_key if isinstance(raw_key, str) else None, env_key=env_key)
 
     base_url = entry.get("base_url")
     if base_url is not None:
