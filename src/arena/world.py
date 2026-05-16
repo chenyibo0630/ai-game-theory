@@ -113,6 +113,15 @@ class World:
             raise ValueError(f"agent_id {POOL_ID!r} is reserved for the AMM pool")
         if self.engine is None:
             self.engine = _build_engine(self.config)
+        # Mock baselines act as a deterministic noise source — pin them to
+        # the front of every round so their pool movement is observable to
+        # the LLM agents that fill afterwards.
+        from ..agents.baseline import MockAgent
+
+        if hasattr(self.engine, "priority_agent_ids"):
+            self.engine.priority_agent_ids = frozenset(
+                a.agent_id for a in self.agents if isinstance(a, MockAgent)
+            )
         for agent in self.agents:
             self._portfolios[agent.agent_id] = PortfolioState(
                 agent_id=agent.agent_id,
@@ -184,6 +193,19 @@ class World:
             )
         )
 
+        post_pool = self.engine.pool_state()
+        pool_coin = post_pool[0] if post_pool is not None else None
+        pool_shares = post_pool[1] if post_pool is not None else None
+
+        # Backfill decision_prices for HOLD / no-order agents so every
+        # persisted decision row carries both values. Engines only fill in
+        # entries for agents that actually submitted an order.
+        decision_prices: dict[str, tuple[float, float]] = {}
+        for agent in self.agents:
+            decision_prices[agent.agent_id] = result.decision_prices.get(
+                agent.agent_id, (opening_price, opening_price)
+            )
+
         report = RoundReport(
             round_index=round_index,
             opening_price=opening_price,
@@ -193,6 +215,9 @@ class World:
             trades=list(result.trades),
             portfolios=[self._portfolios[a.agent_id] for a in self.agents],
             rationales={a: d.rationale for a, d in decisions.items()},
+            pool_coin=pool_coin,
+            pool_shares=pool_shares,
+            decision_prices=decision_prices,
         )
         self._reports.append(report)
 

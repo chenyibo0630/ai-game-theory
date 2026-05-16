@@ -59,6 +59,12 @@ def _connect_params() -> dict[str, Any]:
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
         connect_timeout=5,
+        # Read-only API on a long-lived connection: under MySQL's default
+        # REPEATABLE READ, the first SELECT pins a snapshot for the lifetime
+        # of the implicit transaction, so rows written by `backend` after
+        # the connection opened stay invisible until the connection is
+        # recycled. Autocommit per statement avoids that.
+        autocommit=True,
     )
 
 
@@ -190,7 +196,8 @@ def run_equity(run_id: str) -> dict[str, list[dict[str, Any]]]:
 def run_decisions(run_id: str) -> list[dict[str, Any]]:
     with _query() as cur:
         cur.execute(
-            """SELECT round_index, agent_id, action, quantity, limit_price, rationale
+            """SELECT round_index, agent_id, action, quantity, limit_price,
+                      rationale, price_before, price_after
                  FROM decisions
                 WHERE run_id = %s
              ORDER BY round_index, agent_id""",

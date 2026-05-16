@@ -77,10 +77,8 @@ class MySQLSink:
                 )
 
     def record_round(self, run_id: str, report: RoundReport) -> None:
-        pool_coin: float | None = None
-        pool_shares: int | None = None
-        # Pool reserves aren't yet wired through RoundReport — leave NULL for
-        # now; tracked as Phase-0g follow-up.
+        pool_coin = report.pool_coin
+        pool_shares = report.pool_shares
 
         # Build a single agent_id → Order lookup so the decisions write is O(N)
         # rather than O(N²) per round, and so an agent that somehow submitted
@@ -147,15 +145,32 @@ class MySQLSink:
                         action, qty, limit = order.side.value, order.quantity, order.limit_price
                     else:
                         action, qty, limit = "HOLD", 0, 0.0
+                    price_before, price_after = report.decision_prices.get(
+                        agent_id, (report.opening_price, report.opening_price)
+                    )
                     decision_rows.append(
-                        (run_id, report.round_index, agent_id, action, qty, limit, rationale)
+                        (
+                            run_id,
+                            report.round_index,
+                            agent_id,
+                            action,
+                            qty,
+                            limit,
+                            rationale,
+                            price_before,
+                            price_after,
+                        )
                     )
                 cur.executemany(
                     """INSERT INTO decisions (run_id, round_index, agent_id,
                                                action, quantity, limit_price,
-                                               rationale)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s)
-                       ON DUPLICATE KEY UPDATE rationale = VALUES(rationale)""",
+                                               rationale, price_before,
+                                               price_after)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON DUPLICATE KEY UPDATE
+                           rationale = VALUES(rationale),
+                           price_before = VALUES(price_before),
+                           price_after = VALUES(price_after)""",
                     decision_rows,
                 )
 

@@ -87,10 +87,16 @@ class CallAuctionExchange(MatchingEngine):
 
         trades = _pair(cleared_buys, cleared_sells, price=best_price)
         cleared_volume = sum(t.quantity for t in trades)
+        # Call auction: every submitted order saw the same uniform clearing
+        # price. before = pre-round market, after = settled P*.
+        decision_prices = {
+            o.agent_id: (opening_price, best_price) for o in orders
+        }
         return ClearingResult(
             clearing_price=best_price,
             cleared_volume=cleared_volume,
             trades=tuple(trades),
+            decision_prices=decision_prices,
         )
 
 

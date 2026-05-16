@@ -108,6 +108,13 @@ CREATE TABLE IF NOT EXISTS decisions (
     -- TEXT (not VARCHAR) — the LLM parser caps at 240 chars but model output
     -- could legitimately exceed VARCHAR limits during prompt iteration.
     rationale     TEXT        NOT NULL,
+    -- Market price the engine saw immediately BEFORE and AFTER applying this
+    -- agent's order. Under AMM these reflect the pool's spot at the agent's
+    -- lex-ordered slot; under call_auction both rows of an agent share the
+    -- uniform clearing price. HOLD / no-order agents have before == after ==
+    -- that round's opening price. Nullable so older runs replay cleanly.
+    price_before  DECIMAL(18, 6) NULL,
+    price_after   DECIMAL(18, 6) NULL,
     PRIMARY KEY (run_id, round_index, agent_id),
     INDEX idx_decisions_run_agent (run_id, agent_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

@@ -115,3 +115,11 @@ class RoundReport(BaseModel):
     trades: list[Trade] = Field(default_factory=list)
     portfolios: list[PortfolioState] = Field(default_factory=list)
     rationales: dict[str, str] = Field(default_factory=dict)
+    # Post-trade AMM pool state, when the engine is AMM. None under
+    # call_auction (which has no shared liquidity pool).
+    pool_coin: float | None = None
+    pool_shares: int | None = None
+    # Per-agent market price BEFORE and AFTER applying that agent's order.
+    # Defaulted at the world layer to (opening_price, opening_price) for
+    # HOLD or no-order agents so every decision row has both values.
+    decision_prices: dict[str, tuple[float, float]] = Field(default_factory=dict)

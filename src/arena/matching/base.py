@@ -31,6 +31,15 @@ class ClearingResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     """Free-form engine-specific info (e.g. AMM reserves)."""
 
+    decision_prices: dict[str, tuple[float, float]] = field(default_factory=dict)
+    """For each agent that submitted a non-HOLD order, the market price the
+    engine saw immediately BEFORE and AFTER applying that agent's order.
+    Under AMM this is the pool spot at the agent's lex-ordered slot; under
+    call_auction both values equal the uniform clearing price. Agents whose
+    order was dropped (limit not met, capacity, etc.) still appear with
+    `before == after`. HOLD agents are absent — fill them with the round's
+    opening price at the storage layer."""
+
 
 class MatchingEngine(ABC):
     """One round of matching: orders in, clearing result out.

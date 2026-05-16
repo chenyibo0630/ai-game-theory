@@ -169,12 +169,16 @@ function drawDecisions() {
     const name = currentAgentMap[d.agent_id]?.display_name ?? d.agent_id;
     const limitText = d.action === "HOLD" ? "—" : fmt(d.limit_price);
     const qtyText = d.action === "HOLD" ? "—" : d.quantity;
+    const beforeText = d.price_before == null ? "—" : fmt(d.price_before);
+    const afterText = d.price_after == null ? "—" : fmt(d.price_after);
     tr.innerHTML = `
       <td>${d.round_index + 1}</td>
       <td>${name}</td>
       <td><span class="act-${d.action}">${d.action}</span></td>
       <td>${qtyText}</td>
       <td>${limitText}</td>
+      <td>${beforeText}</td>
+      <td>${afterText}</td>
       <td>${(d.rationale ?? "").replace(/</g, "&lt;")}</td>`;
     tbody.appendChild(tr);
   }
